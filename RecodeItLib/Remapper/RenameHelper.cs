@@ -2,6 +2,7 @@
 using Mono.Cecil.Rocks;
 using ReCodeIt.Models;
 using ReCodeIt.Utils;
+using System.Text.RegularExpressions;
 
 namespace ReCodeIt.ReMapper;
 
@@ -73,20 +74,20 @@ internal static class RenameHelper
             if (!fields.Any()) { continue; }
 
             int fieldCount = 0;
-            foreach (var field in fields)
+            foreach (var field in type.Fields)
             {
-                if (field.FieldType.Name == oldTypeName)
+                if (field.FieldType.Name.TrimAfterSpecialChar() == oldTypeName)
                 {
-                    var newFieldName = GetNewFieldName(newTypeName, field.IsPrivate, fieldCount);
+                    var newFieldName = GetNewFieldName(newTypeName, field.IsPublic || field.IsFamily, fieldCount);
 
                     // Dont need to do extra work
                     if (field.Name == newFieldName) { continue; }
 
                     Logger.Log($"Renaming field on type {type.Name} with name `{field.Name}` to `{newFieldName}`", ConsoleColor.Green);
 
-                    UpdateMethodFieldNames(typesToCheck, type, field, newFieldName);
-
                     field.Name = newFieldName;
+
+                    UpdateMethodFieldNames(typesToCheck, field, newFieldName);
 
                     fieldCount++;
                     overAllCount++;
@@ -97,40 +98,51 @@ internal static class RenameHelper
         return overAllCount;
     }
 
-    private static void UpdateMethodFieldNames(IEnumerable<TypeDefinition> typesToCheck, TypeDefinition currType, FieldReference oldRef, string newName)
+    private static void UpdateMethodFieldNames(IEnumerable<TypeDefinition> typesToCheck, FieldReference oldRef, string newName)
     {
         foreach (var type in typesToCheck)
         {
-            if (type != currType) continue;
-
             foreach (var method in type.Methods)
             {
                 if (!method.HasBody) continue;
 
-                // Get the method body
-                var body = method.Body;
+                CheckMethodForRequiredChanges(method, oldRef, newName);
+            }
+        }
+    }
 
-                // Iterate through all instructions in the method body
-                for (int i = 0; i < body.Instructions.Count; i++)
+    private static void CheckMethodForRequiredChanges(MethodDefinition method, FieldReference oldRef, string newName)
+    {
+        // Get the method body
+        var body = method.Body;
+
+        // Iterate through all instructions in the method body
+        for (int i = 0; i < body.Instructions.Count; i++)
+        {
+            var instruction = body.Instructions[i];
+
+            // Check if the instruction is a field reference
+            if (instruction.Operand is FieldReference fieldRef && fieldRef.Resolve() is FieldDefinition fieldDef)
+            {
+                // Check if the field reference matches the old field name and type
+                if (fieldRef.Name != oldRef.Name) { continue; }
+
+                if (fieldDef.IsPublic)
                 {
-                    var instruction = body.Instructions[i];
-
-                    // Check if the instruction is a field reference
-                    if (instruction.Operand is FieldReference fieldRef)
+                    newName = Regex.Replace(newName, "^_", "", RegexOptions.Compiled);
+                }
+                else
+                {
+                    if (newName.ToCharArray()[0] != '_')
                     {
-                        // Check if the field reference matches the old field name and type
-                        if (fieldRef.Name == oldRef.Name)
-                        {
-                            // Create a new FieldReference with the new name
-                            var newFieldRef = new FieldReference(newName, fieldRef.FieldType, fieldRef.DeclaringType);
-
-                            Logger.Log($"Updating method reference on type {type.Name} in method `{method.Name}` from `{fieldRef.Name}` to `{newFieldRef.Name}`", ConsoleColor.Green);
-
-                            // Replace the old FieldReference with the new one
-                            instruction.Operand = newFieldRef;
-                        }
+                        newName = newName.Insert(0, "_");
                     }
                 }
+
+                Logger.Log($"Updating method reference on type {fieldRef.DeclaringType} in method `{method.Name}` from `{fieldRef.Name}` to `{newName}`", ConsoleColor.Green);
+
+                // Replace the old FieldReference with the new one
+                fieldRef.Name = newName;
             }
         }
     }
