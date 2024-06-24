@@ -37,6 +37,8 @@ public class ReCodeItRemapper
 
     private string AssemblyPath { get; set; }
 
+    private AssemblyDefinition _assembly;
+
     /// <summary>
     /// Start the remapping process
     /// </summary>
@@ -46,7 +48,7 @@ public class ReCodeItRemapper
         string outPath,
         bool crossMapMode = false)
     {
-        DataProvider.LoadAssemblyDefinition(assemblyPath);
+        _assembly = DataProvider.LoadAssemblyDirect(assemblyPath);
 
         AssemblyPath = assemblyPath;
         CrossMapMode = crossMapMode;
@@ -74,7 +76,7 @@ public class ReCodeItRemapper
 
             Logger.Log("Publicizing classes...", ConsoleColor.Green);
 
-            SPTPublicizer.PublicizeClasses(DataProvider.ModuleDefinition);
+            SPTPublicizer.PublicizeClasses(_assembly.MainModule);
         }
 
         if (Settings.MappingSettings.Unseal)
@@ -98,7 +100,7 @@ public class ReCodeItRemapper
     {
         Logger.Log("-----------------------------------------------", ConsoleColor.Yellow);
         Logger.Log($"Starting remap...", ConsoleColor.Yellow);
-        Logger.Log($"Module contains {DataProvider.ModuleDefinition.Types.Count} Types", ConsoleColor.Yellow);
+        Logger.Log($"Module contains {_assembly.MainModule.GetAllTypes().Count()} Types", ConsoleColor.Yellow);
         Logger.Log($"Publicize: {Settings.MappingSettings.Publicize}", ConsoleColor.Yellow);
         Logger.Log($"Unseal: {Settings.MappingSettings.Unseal}", ConsoleColor.Yellow);
         Logger.Log("-----------------------------------------------", ConsoleColor.Yellow);
@@ -110,7 +112,7 @@ public class ReCodeItRemapper
     /// <param name="mapping">Mapping to score</param>
     private void ScoreMapping(RemapModel mapping)
     {
-        foreach (var type in DataProvider.ModuleDefinition.Types)
+        foreach (var type in _assembly.MainModule.GetAllTypes())
         {
             FindMatch(type, mapping);
         }
@@ -138,15 +140,17 @@ public class ReCodeItRemapper
             .Where(token => !tokens
                 .Any(token => type.Name.StartsWith(token))).Any();
 
-        if (ignore && remap.SearchParams.IsNested is null)
+        if (ignore || remap.SearchParams.IsNested is not null && remap.SearchParams.IsNested is false && type.IsNested)
         {
             return;
         }
 
+        /*
         foreach (var nestedType in type.NestedTypes)
         {
             FindMatch(nestedType, remap);
         }
+        */
 
         var score = new ScoringModel
         {
@@ -217,7 +221,7 @@ public class ReCodeItRemapper
         Logger.Log("-----------------------------------------------", ConsoleColor.Green);
         Logger.Log($"Renamed {oldName} to {type.Name} directly", ConsoleColor.Green);
 
-        RenameHelper.RenameAllDirect(remap, type);
+        RenameHelper.RenameAllDirect(remap, _assembly, type);
 
         Logger.Log("-----------------------------------------------", ConsoleColor.Green);
     }
@@ -294,7 +298,7 @@ public class ReCodeItRemapper
 
         // Rename type and all associated type members
 
-        RenameHelper.RenameAll(highestScore);
+        _assembly = RenameHelper.RenameAll(highestScore, _assembly);
 
         Logger.Log("-----------------------------------------------", ConsoleColor.Green);
     }
@@ -304,22 +308,22 @@ public class ReCodeItRemapper
     /// </summary>
     private void WriteAssembly()
     {
-        var moduleName = DataProvider.AssemblyDefinition.MainModule.Name;
+        var moduleName = _assembly.MainModule.Name;
         moduleName = moduleName.Replace(".dll", "-Remapped.dll");
 
         OutPath = Path.Combine(OutPath, moduleName);
 
-        var path = DataProvider.WriteAssemblyDefinition(OutPath);
+        DataProvider.WriteAssemblyDirect(_assembly, OutPath);
 
         Logger.Log("Creating Hollow...", ConsoleColor.Yellow);
         Hollow();
 
         var hollowedDir = Path.GetDirectoryName(OutPath);
         var hollowedPath = Path.Combine(hollowedDir, "Hollowed.dll");
-        DataProvider.WriteAssemblyDefinition(hollowedPath);
+        DataProvider.WriteAssemblyDirect(_assembly, hollowedPath);
 
         Logger.Log("-----------------------------------------------", ConsoleColor.Green);
-        Logger.Log($"Complete: Assembly written to `{path}`", ConsoleColor.Green);
+        Logger.Log($"Complete: Assembly written to `{OutPath}`", ConsoleColor.Green);
         Logger.Log($"Complete: Hollowed written to `{hollowedPath}`", ConsoleColor.Green);
         Logger.Log("Original type names updated on mapping file.", ConsoleColor.Green);
         Logger.Log($"Remap took {Stopwatch.Elapsed.TotalSeconds:F1} seconds", ConsoleColor.Green);
@@ -337,7 +341,7 @@ public class ReCodeItRemapper
     /// </summary>
     private void Hollow()
     {
-        foreach (var type in DataProvider.ModuleDefinition.GetAllTypes())
+        foreach (var type in _assembly.MainModule.GetAllTypes())
         {
             foreach (var method in type.Methods.Where(m => m.HasBody))
             {

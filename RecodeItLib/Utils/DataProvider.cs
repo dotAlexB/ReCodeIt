@@ -183,7 +183,7 @@ public static class DataProvider
 
         Console.WriteLine(path);
 
-        resolver.AddSearchDirectory(Path.GetDirectoryName(path)); // Replace with the correct path : (6/14) I have no idea what I met by that
+        resolver.AddSearchDirectory(Path.GetDirectoryName(path));
         ReaderParameters parameters = new() { AssemblyResolver = resolver };
 
         var assemblyDefinition = AssemblyDefinition.ReadAssembly(
@@ -199,6 +199,30 @@ public static class DataProvider
 
         AssemblyDefinition = assemblyDefinition;
         ModuleDefinition = assemblyDefinition.MainModule;
+    }
+
+    public static AssemblyDefinition LoadAssemblyDirect(string path)
+    {
+        DefaultAssemblyResolver resolver = new();
+
+        resolver.AddSearchDirectory(Path.GetDirectoryName(path));
+        ReaderParameters parameters = new() { AssemblyResolver = resolver };
+
+        var assemblyDefinition = AssemblyDefinition.ReadAssembly(
+            path,
+            parameters);
+
+        if (assemblyDefinition is null)
+        {
+            throw new NullReferenceException("AssemblyDefinition was null...");
+        }
+
+        return assemblyDefinition;
+    }
+
+    public static void WriteAssemblyDirect(AssemblyDefinition assembly, string path)
+    {
+        assembly.Write(path);
     }
 
     public static string WriteAssemblyDefinition(string path)

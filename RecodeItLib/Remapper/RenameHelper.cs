@@ -13,9 +13,9 @@ internal static class RenameHelper
     /// Only used by the manual remapper, should probably be removed
     /// </summary>
     /// <param name="score"></param>
-    public static void RenameAll(ScoringModel score, bool direct = false)
+    public static AssemblyDefinition RenameAll(ScoringModel score, AssemblyDefinition definition, bool direct = false)
     {
-        var types = DataProvider.ModuleDefinition.GetAllTypes();
+        var types = definition.MainModule.GetAllTypes();
 
         // Rename all fields and properties first
         if (DataProvider.Settings.Remapper.MappingSettings.RenameFields)
@@ -34,20 +34,22 @@ internal static class RenameHelper
         }
 
         Logger.Log($"{score.Definition.Name} Renamed.", ConsoleColor.Green);
+
+        return definition;
     }
 
     /// <summary>
     /// Only used by the manual remapper, should probably be removed
     /// </summary>
     /// <param name="score"></param>
-    public static void RenameAllDirect(RemapModel remap, TypeDefinition type)
+    public static void RenameAllDirect(RemapModel remap, AssemblyDefinition definition, TypeDefinition type)
     {
         var directRename = new ScoringModel
         {
             Definition = type,
             ReMap = remap
         };
-        RenameAll(directRename, true);
+        RenameAll(directRename, definition, true);
     }
 
     /// <summary>
@@ -80,7 +82,9 @@ internal static class RenameHelper
                     // Dont need to do extra work
                     if (field.Name == newFieldName) { continue; }
 
-                    Logger.Log($"Renaming original field type name: `{field.FieldType.Name}` with name `{field.Name}` to `{newFieldName}`", ConsoleColor.Green);
+                    Logger.Log($"Renaming field on type {type.Name} with name `{field.Name}` to `{newFieldName}`", ConsoleColor.Green);
+
+                    UpdateMethodFieldNames(typesToCheck, type, field, newFieldName);
 
                     field.Name = newFieldName;
 
@@ -88,14 +92,84 @@ internal static class RenameHelper
                     overAllCount++;
                 }
             }
-
-            if (type.HasNestedTypes)
-            {
-                RenameAllFields(oldTypeName, newTypeName, type.NestedTypes, overAllCount);
-            }
         }
 
         return overAllCount;
+    }
+
+    private static void UpdateMethodFieldNames(IEnumerable<TypeDefinition> typesToCheck, TypeDefinition currType, FieldReference oldRef, string newName)
+    {
+        foreach (var type in typesToCheck)
+        {
+            if (type != currType) continue;
+
+            foreach (var method in type.Methods)
+            {
+                if (!method.HasBody) continue;
+
+                // Get the method body
+                var body = method.Body;
+
+                // Iterate through all instructions in the method body
+                for (int i = 0; i < body.Instructions.Count; i++)
+                {
+                    var instruction = body.Instructions[i];
+
+                    // Check if the instruction is a field reference
+                    if (instruction.Operand is FieldReference fieldRef)
+                    {
+                        // Check if the field reference matches the old field name and type
+                        if (fieldRef.Name == oldRef.Name)
+                        {
+                            // Create a new FieldReference with the new name
+                            var newFieldRef = new FieldReference(newName, fieldRef.FieldType, fieldRef.DeclaringType);
+
+                            Logger.Log($"Updating method reference on type {type.Name} in method `{method.Name}` from `{fieldRef.Name}` to `{newFieldRef.Name}`", ConsoleColor.Green);
+
+                            // Replace the old FieldReference with the new one
+                            instruction.Operand = newFieldRef;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static bool AreFieldReferencesEqual(FieldReference fieldRef, FieldDefinition fieldDef)
+    {
+        if (fieldRef.Name != fieldDef.Name)
+            return false;
+
+        if (!AreTypesEqual(fieldRef.DeclaringType, fieldDef.DeclaringType))
+            return false;
+
+        if (!AreTypesEqual(fieldRef.FieldType, fieldDef.FieldType))
+            return false;
+
+        return true;
+    }
+
+    private static bool AreTypesEqual(TypeReference type1, TypeReference type2)
+    {
+        if (type1 == null || type2 == null)
+            return false;
+
+        if (type1.FullName != type2.FullName)
+            return false;
+
+        if (type1 is GenericInstanceType genericType1 && type2 is GenericInstanceType genericType2)
+        {
+            if (genericType1.GenericArguments.Count != genericType2.GenericArguments.Count)
+                return false;
+
+            for (int i = 0; i < genericType1.GenericArguments.Count; i++)
+            {
+                if (!AreTypesEqual(genericType1.GenericArguments[i], genericType2.GenericArguments[i]))
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
