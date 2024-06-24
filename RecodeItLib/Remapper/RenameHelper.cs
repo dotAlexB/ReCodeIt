@@ -135,43 +135,6 @@ internal static class RenameHelper
         }
     }
 
-    private static bool AreFieldReferencesEqual(FieldReference fieldRef, FieldDefinition fieldDef)
-    {
-        if (fieldRef.Name != fieldDef.Name)
-            return false;
-
-        if (!AreTypesEqual(fieldRef.DeclaringType, fieldDef.DeclaringType))
-            return false;
-
-        if (!AreTypesEqual(fieldRef.FieldType, fieldDef.FieldType))
-            return false;
-
-        return true;
-    }
-
-    private static bool AreTypesEqual(TypeReference type1, TypeReference type2)
-    {
-        if (type1 == null || type2 == null)
-            return false;
-
-        if (type1.FullName != type2.FullName)
-            return false;
-
-        if (type1 is GenericInstanceType genericType1 && type2 is GenericInstanceType genericType2)
-        {
-            if (genericType1.GenericArguments.Count != genericType2.GenericArguments.Count)
-                return false;
-
-            for (int i = 0; i < genericType1.GenericArguments.Count; i++)
-            {
-                if (!AreTypesEqual(genericType1.GenericArguments[i], genericType2.GenericArguments[i]))
-                    return false;
-            }
-        }
-
-        return true;
-    }
-
     /// <summary>
     /// Rename all properties recursively, returns number of fields changed
     /// </summary>
