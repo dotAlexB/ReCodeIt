@@ -21,6 +21,8 @@ public class ReCodeItRemapper
 
     private readonly ReCodeItCrossCompiler _compiler;
 
+    private List<RemapModel> _remaps = [];
+
     public static bool IsRunning { get; private set; } = false;
 
     public delegate void OnCompleteHandler();
@@ -48,6 +50,7 @@ public class ReCodeItRemapper
         string outPath,
         bool crossMapMode = false)
     {
+        _remaps = remapModels;
         _assembly = DataProvider.LoadAssemblyDirect(assemblyPath);
 
         AssemblyPath = assemblyPath;
@@ -239,7 +242,7 @@ public class ReCodeItRemapper
         var failures = 0;
         var changes = 0;
 
-        foreach (var remap in DataProvider.Remaps)
+        foreach (var remap in _remaps)
         {
             if (remap.Succeeded is false)
             {
